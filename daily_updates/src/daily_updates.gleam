@@ -17,5 +17,8 @@ pub fn main() -> Nil {
   io.println("\n-> Syncing dotfiles...")
   dotfiles.sync()
 
+  io.println("\n-> Syncing nvim config...")
+  dotfiles.sync_nvim()
+
   io.println("\n=== All updates complete! ===")
 }

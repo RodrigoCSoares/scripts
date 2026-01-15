@@ -53,3 +53,33 @@ pub fn home_dir() -> String {
     Error(_) -> "/Users/rodrigo.soares"
   }
 }
+
+/// Run a command silently in a specific directory
+pub fn run_in_dir(
+  cmd: String,
+  args: List(String),
+  dir: String,
+) -> Result(String, String) {
+  let result = shellout.command(run: cmd, with: args, in: dir, opt: [])
+  case result {
+    Ok(output) -> Ok(output)
+    Error(#(_, msg)) -> Error(msg)
+  }
+}
+
+/// Run a command with output in a specific directory
+pub fn run_in_dir_with_output(
+  cmd: String,
+  args: List(String),
+  dir: String,
+) -> Result(String, String) {
+  let result =
+    shellout.command(run: cmd, with: args, in: dir, opt: [
+      shellout.LetBeStdout,
+      shellout.LetBeStderr,
+    ])
+  case result {
+    Ok(output) -> Ok(output)
+    Error(#(_, msg)) -> Error(msg)
+  }
+}
