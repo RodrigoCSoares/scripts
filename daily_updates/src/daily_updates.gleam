@@ -1,3 +1,4 @@
+import brewfile
 import cmd
 import dotfiles
 import gleam/io
@@ -12,12 +13,15 @@ pub fn main() -> Nil {
   cmd.run("brew", ["upgrade"])
 
   io.println("\n-> Updating Brewfile...")
+  let brewfile_path = cmd.home_dir() <> "/.Brewfile"
   cmd.run("brew", [
     "bundle",
     "dump",
-    "--file=" <> cmd.home_dir() <> "/.Brewfile",
+    "--file=" <> brewfile_path,
     "--force",
+    "--describe",
   ])
+  brewfile.fix_tap_paths(brewfile_path)
 
   io.println("\n-> Upgrading Neovim Lazy plugins...")
   cmd.run("nvim", ["--headless", "+Lazy! sync", "+qa"])
