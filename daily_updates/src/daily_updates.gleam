@@ -11,6 +11,14 @@ pub fn main() -> Nil {
   io.println("\n-> Upgrading Homebrew packages...")
   cmd.run("brew", ["upgrade"])
 
+  io.println("\n-> Updating Brewfile...")
+  cmd.run("brew", [
+    "bundle",
+    "dump",
+    "--file=" <> cmd.home_dir() <> "/.Brewfile",
+    "--force",
+  ])
+
   io.println("\n-> Upgrading Neovim Lazy plugins...")
   cmd.run("nvim", ["--headless", "+Lazy! sync", "+qa"])
 
