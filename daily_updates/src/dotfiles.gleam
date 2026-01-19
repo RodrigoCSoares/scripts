@@ -19,6 +19,14 @@ pub fn sync_nvim() -> Nil {
   sync_repo(nvim_dir, "nvim config")
 }
 
+/// Sync personal scripts repo
+pub fn sync_scripts() -> Nil {
+  let home = cmd.home_dir()
+  let scripts_dir = home <> "/personal/scripts"
+
+  sync_repo_with_untracked(scripts_dir, "scripts")
+}
+
 /// Sync a bare git repo (like dotfiles)
 fn sync_bare_repo(git_args: List(String), name: String) -> Nil {
   let status_result =
@@ -62,7 +70,7 @@ fn sync_bare_repo(git_args: List(String), name: String) -> Nil {
   }
 }
 
-/// Sync a regular git repo (like nvim config)
+/// Sync a regular git repo (like nvim config) - only tracked files
 fn sync_repo(repo_path: String, name: String) -> Nil {
   let status_result =
     cmd.run_in_dir("git", ["status", "--porcelain"], repo_path)
@@ -77,6 +85,46 @@ fn sync_repo(repo_path: String, name: String) -> Nil {
 
       // Add all tracked files that changed
       let _ = cmd.run_in_dir("git", ["add", "-u"], repo_path)
+
+      // Commit
+      let _ =
+        cmd.run_in_dir_with_output(
+          "git",
+          ["commit", "-m", "Auto-sync " <> name <> " updates"],
+          repo_path,
+        )
+
+      // Push
+      let push_result = cmd.run_in_dir_with_output("git", ["push"], repo_path)
+
+      case push_result {
+        Ok(_) -> io.println("  " <> name <> " synced and pushed!")
+        Error(msg) -> io.println("  Push failed: " <> msg)
+      }
+      Nil
+    }
+    Error(msg) -> {
+      io.println("  Error checking status: " <> msg)
+      Nil
+    }
+  }
+}
+
+/// Sync a regular git repo including untracked files (like scripts)
+fn sync_repo_with_untracked(repo_path: String, name: String) -> Nil {
+  let status_result =
+    cmd.run_in_dir("git", ["status", "--porcelain"], repo_path)
+
+  case status_result {
+    Ok(output) if output == "" -> {
+      io.println("  No changes to " <> name)
+      Nil
+    }
+    Ok(_) -> {
+      io.println("  Changes detected, committing...")
+
+      // Add all files including untracked
+      let _ = cmd.run_in_dir("git", ["add", "-A"], repo_path)
 
       // Commit
       let _ =
