@@ -1,6 +1,7 @@
 import cmd
 import gleam/io
 import gleam/list.{flatten}
+import llm
 
 /// Sync dotfiles bare repo
 pub fn sync() -> Nil {
@@ -40,6 +41,20 @@ fn sync_bare_repo(git_args: List(String), name: String) -> Nil {
     Ok(_) -> {
       io.println("  Changes detected, committing...")
 
+      // Get diff for LLM
+      let diff_result =
+        cmd.run_silent("git", flatten([git_args, ["diff", "--cached"]]))
+      let diff = case diff_result {
+        Ok(d) -> d
+        Error(_) -> ""
+      }
+
+      // Generate commit message
+      let commit_msg = case llm.generate_commit_message(diff, name) {
+        Ok(msg) -> msg
+        Error(_) -> "Auto-sync " <> name <> " updates"
+      }
+
       // Add all tracked files that changed
       let _ = cmd.run_silent("git", flatten([git_args, ["add", "-u"]]))
 
@@ -47,10 +62,7 @@ fn sync_bare_repo(git_args: List(String), name: String) -> Nil {
       let _ =
         cmd.run_with_output(
           "git",
-          flatten([
-            git_args,
-            ["commit", "-m", "Auto-sync " <> name <> " updates"],
-          ]),
+          flatten([git_args, ["commit", "-m", commit_msg]]),
         )
 
       // Push
@@ -83,14 +95,27 @@ fn sync_repo(repo_path: String, name: String) -> Nil {
     Ok(_) -> {
       io.println("  Changes detected, committing...")
 
-      // Add all tracked files that changed
+      // Add all tracked files that changed first (so diff --cached works)
       let _ = cmd.run_in_dir("git", ["add", "-u"], repo_path)
+
+      // Get diff for LLM
+      let diff_result = cmd.run_in_dir("git", ["diff", "--cached"], repo_path)
+      let diff = case diff_result {
+        Ok(d) -> d
+        Error(_) -> ""
+      }
+
+      // Generate commit message
+      let commit_msg = case llm.generate_commit_message(diff, name) {
+        Ok(msg) -> msg
+        Error(_) -> "Auto-sync " <> name <> " updates"
+      }
 
       // Commit
       let _ =
         cmd.run_in_dir_with_output(
           "git",
-          ["commit", "-m", "Auto-sync " <> name <> " updates"],
+          ["commit", "-m", commit_msg],
           repo_path,
         )
 
@@ -123,14 +148,27 @@ fn sync_repo_with_untracked(repo_path: String, name: String) -> Nil {
     Ok(_) -> {
       io.println("  Changes detected, committing...")
 
-      // Add all files including untracked
+      // Add all files including untracked first (so diff --cached works)
       let _ = cmd.run_in_dir("git", ["add", "-A"], repo_path)
+
+      // Get diff for LLM
+      let diff_result = cmd.run_in_dir("git", ["diff", "--cached"], repo_path)
+      let diff = case diff_result {
+        Ok(d) -> d
+        Error(_) -> ""
+      }
+
+      // Generate commit message
+      let commit_msg = case llm.generate_commit_message(diff, name) {
+        Ok(msg) -> msg
+        Error(_) -> "Auto-sync " <> name <> " updates"
+      }
 
       // Commit
       let _ =
         cmd.run_in_dir_with_output(
           "git",
-          ["commit", "-m", "Auto-sync " <> name <> " updates"],
+          ["commit", "-m", commit_msg],
           repo_path,
         )
 
