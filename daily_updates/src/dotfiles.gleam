@@ -29,8 +29,11 @@ pub fn sync_scripts() -> Nil {
 }
 
 /// Sync a git repo with optional git prefix args (for bare repos)
+/// For bare repos (like dotfiles), only tracked files are added (-u)
+/// For regular repos, all files including untracked are added (-A)
 fn sync_repo(repo_path: String, name: String, git_prefix: List(String)) -> Nil {
   let git_args = fn(args) { flatten([git_prefix, args]) }
+  let is_bare_repo = git_prefix != []
 
   let status_result =
     cmd.run_in_dir("git", git_args(["status", "--porcelain"]), repo_path)
@@ -43,8 +46,13 @@ fn sync_repo(repo_path: String, name: String, git_prefix: List(String)) -> Nil {
     Ok(_) -> {
       io.println("  Changes detected, committing...")
 
-      // Add all files including untracked
-      let _ = cmd.run_in_dir("git", git_args(["add", "-A"]), repo_path)
+      // For bare repos (dotfiles), only add tracked files to avoid scanning entire home dir
+      // For regular repos, add all files including untracked
+      let add_flag = case is_bare_repo {
+        True -> "-u"
+        False -> "-A"
+      }
+      let _ = cmd.run_in_dir("git", git_args(["add", add_flag]), repo_path)
 
       // Get diff for LLM
       let diff = case
