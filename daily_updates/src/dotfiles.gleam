@@ -52,10 +52,11 @@ fn sync_bare_repo(git_args: List(String), name: String) -> Nil {
         Error(_) -> ""
       }
 
-      // Generate commit message
-      let commit_msg = case llm.generate_commit_message(diff, name) {
+      // Generate commit message (fallback to simple message if LLM unavailable)
+      let fallback = "Auto-sync " <> name <> " updates"
+      let commit_msg = case llm.generate_commit_message(diff) {
         Ok(msg) -> msg
-        Error(_) -> "Auto-sync " <> name <> " updates"
+        Error(_) -> fallback
       }
 
       // Commit
@@ -105,10 +106,11 @@ fn sync_repo(repo_path: String, name: String) -> Nil {
         Error(_) -> ""
       }
 
-      // Generate commit message
-      let commit_msg = case llm.generate_commit_message(diff, name) {
+      // Generate commit message (fallback to simple message if LLM unavailable)
+      let fallback = "Auto-sync " <> name <> " updates"
+      let commit_msg = case llm.generate_commit_message(diff) {
         Ok(msg) -> msg
-        Error(_) -> "Auto-sync " <> name <> " updates"
+        Error(_) -> fallback
       }
 
       // Commit

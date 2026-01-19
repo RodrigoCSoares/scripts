@@ -2,22 +2,14 @@ import cmd
 import gleam/string
 
 /// Generate a commit message using a local LLM (Ollama)
-/// Falls back to a simple message if LLM is unavailable
-pub fn generate_commit_message(
-  diff: String,
-  repo_name: String,
-) -> Result(String, String) {
+pub fn generate_commit_message(diff: String) -> Result(String, String) {
   let prompt =
     "Generate a concise git commit message for these changes. Be specific about what changed. Output ONLY the commit message, nothing else. No quotes, no prefixes like 'feat:' or 'fix:', just a plain sentence.\n\nChanges:\n"
     <> diff
 
-  // Try Ollama first
   case call_ollama(prompt) {
     Ok(message) -> Ok(string.trim(message))
-    Error(_) -> {
-      // Fallback to simple message
-      Ok("Auto-sync " <> repo_name <> " updates")
-    }
+    Error(e) -> Error(e)
   }
 }
 
