@@ -6,7 +6,6 @@ import gleam/json
 import gleam/list
 import gleam/string
 
-/// Load ignored packages from ~/.brewfile-ignore
 fn load_ignored_packages() -> List(String) {
   let home = cmd.home_dir()
   let ignore_file = home <> "/.brewfile-ignore"
@@ -21,24 +20,20 @@ fn load_ignored_packages() -> List(String) {
   }
 }
 
-/// Check if a line contains an ignored package
 fn is_ignored_line(line: String, ignored: List(String)) -> Bool {
   list.any(ignored, fn(pkg) { string.contains(line, "\"" <> pkg <> "\"") })
 }
 
-/// Cask info from brew
 type CaskInfo {
   CaskInfo(token: String, tap: String)
 }
 
-/// Decoder for cask info from brew JSON
 fn cask_info_decoder() -> decode.Decoder(CaskInfo) {
   use token <- decode.field("token", decode.string)
   use tap <- decode.field("tap", decode.string)
   decode.success(CaskInfo(token:, tap:))
 }
 
-/// Get a map of cask token -> tap for all installed casks
 fn get_cask_taps() -> Dict(String, String) {
   let result =
     cmd.run_silent("brew", ["info", "--json=v2", "--installed", "--cask"])
@@ -49,7 +44,6 @@ fn get_cask_taps() -> Dict(String, String) {
   }
 }
 
-/// Parse the brew JSON output to extract cask -> tap mapping
 fn parse_cask_json(json_str: String) -> Dict(String, String) {
   let casks_decoder = decode.at(["casks"], decode.list(cask_info_decoder()))
 
@@ -62,7 +56,6 @@ fn parse_cask_json(json_str: String) -> Dict(String, String) {
   }
 }
 
-/// Standard taps that don't need full path
 fn is_standard_tap(tap: String) -> Bool {
   tap == "homebrew/cask"
   || tap == "homebrew/cask-fonts"
@@ -70,18 +63,15 @@ fn is_standard_tap(tap: String) -> Bool {
   || tap == "homebrew/core"
 }
 
-/// Fix a single line if it's a cask that needs a full tap path
 fn fix_cask_line(line: String, taps: Dict(String, String)) -> String {
   case string.starts_with(line, "cask \"") {
     False -> line
     True -> {
-      // Extract cask name from: cask "name"
       let trimmed =
         line
         |> string.drop_start(6)
         |> string.drop_end(1)
 
-      // Skip if already has tap path
       case string.contains(trimmed, "/") {
         True -> line
         False -> {
@@ -100,7 +90,6 @@ fn fix_cask_line(line: String, taps: Dict(String, String)) -> String {
   }
 }
 
-/// Fix all cask entries in a Brewfile to include full tap paths
 /// Also removes packages listed in ~/.brewfile-ignore
 pub fn fix_tap_paths(brewfile_path: String) -> Nil {
   io.println("  Resolving cask tap paths...")
@@ -113,7 +102,6 @@ pub fn fix_tap_paths(brewfile_path: String) -> Nil {
     False -> Nil
   }
 
-  // Read the brewfile
   let read_result = cmd.run_silent("cat", [brewfile_path])
 
   case read_result {
@@ -129,7 +117,6 @@ pub fn fix_tap_paths(brewfile_path: String) -> Nil {
         |> list.map(fn(line) { fix_cask_line(line, taps) })
       let fixed_content = string.join(fixed_lines, "\n")
 
-      // Write back
       let write_result =
         cmd.run_silent("sh", [
           "-c",

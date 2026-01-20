@@ -2,7 +2,6 @@ import gleam/io
 import gleam/string
 import shellout
 
-/// Run a command and print the result
 pub fn run(cmd: String, args: List(String)) -> Nil {
   let result =
     shellout.command(run: cmd, with: args, in: ".", opt: [
@@ -19,7 +18,6 @@ pub fn run(cmd: String, args: List(String)) -> Nil {
   }
 }
 
-/// Run a command silently and return the output
 pub fn run_silent(cmd: String, args: List(String)) -> Result(String, String) {
   let result = shellout.command(run: cmd, with: args, in: ".", opt: [])
   case result {
@@ -28,7 +26,6 @@ pub fn run_silent(cmd: String, args: List(String)) -> Result(String, String) {
   }
 }
 
-/// Run a command with output shown
 pub fn run_with_output(
   cmd: String,
   args: List(String),
@@ -44,7 +41,6 @@ pub fn run_with_output(
   }
 }
 
-/// Get the home directory
 pub fn home_dir() -> String {
   let result =
     shellout.command(run: "sh", with: ["-c", "echo $HOME"], in: ".", opt: [])
@@ -54,7 +50,6 @@ pub fn home_dir() -> String {
   }
 }
 
-/// Run a command silently in a specific directory
 pub fn run_in_dir(
   cmd: String,
   args: List(String),
@@ -67,7 +62,6 @@ pub fn run_in_dir(
   }
 }
 
-/// Run a command with output in a specific directory
 pub fn run_in_dir_with_output(
   cmd: String,
   args: List(String),

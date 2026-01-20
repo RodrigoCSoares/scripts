@@ -3,7 +3,6 @@ import gleam/io
 import gleam/list.{flatten}
 import llm
 
-/// Sync dotfiles bare repo
 pub fn sync() -> Nil {
   let home = cmd.home_dir()
   let git_dir = home <> "/.dotfiles"
@@ -12,7 +11,6 @@ pub fn sync() -> Nil {
   sync_repo(home, "dotfiles", git_prefix)
 }
 
-/// Sync neovim config repo
 pub fn sync_nvim() -> Nil {
   let home = cmd.home_dir()
   let nvim_dir = home <> "/.config/nvim"
@@ -20,7 +18,6 @@ pub fn sync_nvim() -> Nil {
   sync_repo(nvim_dir, "nvim config", [])
 }
 
-/// Sync personal scripts repo
 pub fn sync_scripts() -> Nil {
   let home = cmd.home_dir()
   let scripts_dir = home <> "/personal/scripts"
@@ -28,7 +25,6 @@ pub fn sync_scripts() -> Nil {
   sync_repo(scripts_dir, "scripts", [])
 }
 
-/// Sync a git repo with optional git prefix args (for bare repos)
 /// For bare repos (like dotfiles), only tracked files are added (-u)
 /// For regular repos, all files including untracked are added (-A)
 fn sync_repo(repo_path: String, name: String, git_prefix: List(String)) -> Nil {
@@ -46,15 +42,12 @@ fn sync_repo(repo_path: String, name: String, git_prefix: List(String)) -> Nil {
     Ok(_) -> {
       io.println("  Changes detected, committing...")
 
-      // For bare repos (dotfiles), only add tracked files to avoid scanning entire home dir
-      // For regular repos, add all files including untracked
       let add_flag = case is_bare_repo {
         True -> "-u"
         False -> "-A"
       }
       let _ = cmd.run_in_dir("git", git_args(["add", add_flag]), repo_path)
 
-      // Get diff for LLM
       let diff = case
         cmd.run_in_dir("git", git_args(["diff", "--cached"]), repo_path)
       {
@@ -62,14 +55,12 @@ fn sync_repo(repo_path: String, name: String, git_prefix: List(String)) -> Nil {
         Error(_) -> ""
       }
 
-      // Generate commit message (fallback to simple message if LLM unavailable)
       let fallback = "Auto-sync " <> name <> " updates"
       let commit_msg = case llm.generate_commit_message(diff) {
         Ok(msg) -> msg
         Error(_) -> fallback
       }
 
-      // Commit
       let _ =
         cmd.run_in_dir_with_output(
           "git",
@@ -77,7 +68,6 @@ fn sync_repo(repo_path: String, name: String, git_prefix: List(String)) -> Nil {
           repo_path,
         )
 
-      // Push
       let push_result =
         cmd.run_in_dir_with_output("git", git_args(["push"]), repo_path)
 

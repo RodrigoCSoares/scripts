@@ -5,7 +5,6 @@ import gleam/httpc
 import gleam/json
 import gleam/string
 
-/// Generate a commit message using a local LLM (Ollama)
 pub fn generate_commit_message(diff: String) -> Result(String, String) {
   let prompt =
     "Generate a concise git commit message for these changes. Be specific about what changed. Output ONLY the commit message, nothing else. No quotes, no prefixes like 'feat:' or 'fix:', just a plain sentence.\n\nChanges:\n"
@@ -17,9 +16,7 @@ pub fn generate_commit_message(diff: String) -> Result(String, String) {
   }
 }
 
-/// Call Ollama API using gleam_httpc
 fn call_ollama(prompt: String) -> Result(String, String) {
-  // Build the request body as JSON
   let body =
     json.object([
       #("model", json.string("llama3")),
@@ -29,7 +26,6 @@ fn call_ollama(prompt: String) -> Result(String, String) {
     ])
     |> json.to_string
 
-  // Create the request
   let req =
     request.new()
     |> request.set_method(http.Post)
@@ -39,7 +35,6 @@ fn call_ollama(prompt: String) -> Result(String, String) {
     |> request.set_body(body)
     |> request.prepend_header("content-type", "application/json")
 
-  // Send the request
   case httpc.send(req) {
     Ok(resp) -> {
       case resp.status {
@@ -51,7 +46,6 @@ fn call_ollama(prompt: String) -> Result(String, String) {
   }
 }
 
-/// Parse Ollama JSON response to extract the generated text
 fn parse_ollama_response(response: String) -> Result(String, String) {
   let decoder = {
     use response_text <- decode.field("response", decode.string)
