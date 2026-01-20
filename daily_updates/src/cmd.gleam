@@ -1,5 +1,5 @@
+import envoy
 import gleam/io
-import gleam/string
 import shellout
 
 pub fn run(cmd: String, args: List(String)) -> Nil {
@@ -42,10 +42,8 @@ pub fn run_with_output(
 }
 
 pub fn home_dir() -> String {
-  let result =
-    shellout.command(run: "sh", with: ["-c", "echo $HOME"], in: ".", opt: [])
-  case result {
-    Ok(home) -> string.trim(home)
+  case envoy.get("HOME") {
+    Ok(home) -> home
     Error(_) -> "/Users/rodrigo.soares"
   }
 }

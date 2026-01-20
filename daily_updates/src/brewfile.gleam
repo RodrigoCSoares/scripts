@@ -5,12 +5,13 @@ import gleam/io
 import gleam/json
 import gleam/list
 import gleam/string
+import simplifile
 
 fn load_ignored_packages() -> List(String) {
   let home = cmd.home_dir()
   let ignore_file = home <> "/.brewfile-ignore"
 
-  case cmd.run_silent("cat", [ignore_file]) {
+  case simplifile.read(ignore_file) {
     Ok(content) ->
       content
       |> string.split("\n")
@@ -102,11 +103,9 @@ pub fn fix_tap_paths(brewfile_path: String) -> Nil {
     False -> Nil
   }
 
-  let read_result = cmd.run_silent("cat", [brewfile_path])
-
-  case read_result {
-    Error(msg) -> {
-      io.println("  Error reading Brewfile: " <> msg)
+  case simplifile.read(brewfile_path) {
+    Error(_) -> {
+      io.println("  Error reading Brewfile")
       Nil
     }
     Ok(content) -> {
@@ -117,19 +116,9 @@ pub fn fix_tap_paths(brewfile_path: String) -> Nil {
         |> list.map(fn(line) { fix_cask_line(line, taps) })
       let fixed_content = string.join(fixed_lines, "\n")
 
-      let write_result =
-        cmd.run_silent("sh", [
-          "-c",
-          "cat > "
-            <> brewfile_path
-            <> " << 'BREWFILE_EOF'\n"
-            <> fixed_content
-            <> "\nBREWFILE_EOF",
-        ])
-
-      case write_result {
+      case simplifile.write(brewfile_path, fixed_content) {
         Ok(_) -> io.println("  Tap paths fixed!")
-        Error(msg) -> io.println("  Error writing Brewfile: " <> msg)
+        Error(_) -> io.println("  Error writing Brewfile")
       }
       Nil
     }
