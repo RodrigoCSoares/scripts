@@ -35,5 +35,8 @@ pub fn main() -> Nil {
   io.println("\n-> Syncing scripts...")
   dotfiles.sync_scripts()
 
+  io.println("\n-> Syncing opencode config...")
+  dotfiles.sync_scripts()
+
   io.println("\n=== All updates complete! ===")
 }

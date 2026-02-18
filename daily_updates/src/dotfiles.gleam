@@ -25,6 +25,13 @@ pub fn sync_scripts() -> Nil {
   sync_repo(scripts_dir, "scripts", [])
 }
 
+pub fn sync_opencode() -> Nil {
+  let home = cmd.home_dir()
+  let nvim_dir = home <> "/.config/opencode"
+
+  sync_repo(nvim_dir, "opencode config", [])
+}
+
 /// For bare repos (like dotfiles), only tracked files are added (-u)
 /// For regular repos, all files including untracked are added (-A)
 fn sync_repo(repo_path: String, name: String, git_prefix: List(String)) -> Nil {
