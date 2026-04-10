@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# rainfrog-iam — launch rainfrog with an AWS RDS IAM-authenticated connection
+#
+# Connection parameters are read from ~/.secrets using the naming convention:
+#   RAINFROG_<NAME>_HOST, RAINFROG_<NAME>_USER, RAINFROG_<NAME>_DB,
+#   RAINFROG_<NAME>_PORT, RAINFROG_<NAME>_REGION, RAINFROG_<NAME>_PROFILE,
+#   RAINFROG_<NAME>_SSO_SESSION, RAINFROG_<NAME>_SSL_CA (optional)
+#
+# Usage:
+#   rainfrog-iam <connection-name>   # e.g. rainfrog-iam financecore-qa
+#   rainfrog-iam --list              # list available connections from ~/.secrets
+
+set -euo pipefail
+
+SECRETS_FILE="$HOME/.secrets"
+
+# ── helpers ────────────────────────────────────────────────────────────────────
+
+usage() {
+  cat <<EOF
+Usage: rainfrog-iam [connection-name]
+       rainfrog-iam --list
+       rainfrog-iam --help
+
+Launch rainfrog with an AWS RDS IAM-authenticated connection.
+Handles AWS SSO login automatically if the session is expired.
+
+Commands:
+  (no args)           Pick a connection interactively with fzf
+  <connection-name>   Connect directly by name (e.g. financecore-qa)
+  --list, -l          List all connections configured in $SECRETS_FILE
+  --help, -h          Show this help message
+
+Connection vars must be defined in $SECRETS_FILE using this naming convention:
+
+  RAINFROG_<NAME>_HOST          RDS endpoint hostname          (required)
+  RAINFROG_<NAME>_USER          Database username              (required)
+  RAINFROG_<NAME>_DB            Database name                  (required)
+  RAINFROG_<NAME>_PORT          Port (e.g. 3306)               (required)
+  RAINFROG_<NAME>_REGION        AWS region (e.g. eu-west-1)    (required)
+  RAINFROG_<NAME>_PROFILE       AWS CLI profile name           (required)
+  RAINFROG_<NAME>_SSO_SESSION   AWS SSO session name           (required)
+  RAINFROG_<NAME>_SSL_CA        Path to SSL CA cert            (optional)
+
+Where <NAME> is the connection name uppercased with hyphens replaced by
+underscores (e.g. financecore-qa → FINANCECORE_QA).
+
+Examples:
+  rainfrog-iam financecore-qa
+  rainfrog-iam financecore-prd5
+  rainfrog-iam --list
+EOF
+}
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+# ── load secrets ───────────────────────────────────────────────────────────────
+
+[[ -f "$SECRETS_FILE" ]] || die "secrets file not found: $SECRETS_FILE"
+# shellcheck source=/dev/null
+source "$SECRETS_FILE"
+
+# ── list mode ──────────────────────────────────────────────────────────────────
+
+list_connections_raw() {
+  # Outputs bare connection names, one per line — used by fzf and --list
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^export\ RAINFROG_(.+)_HOST= ]]; then
+      raw="${BASH_REMATCH[1]}"
+      # Convert KEY_NAME back to kebab-case: FINANCECORE_QA → financecore-qa
+      echo "$raw" | tr '[:upper:]' '[:lower:]' | tr '_' '-'
+    fi
+  done < "$SECRETS_FILE"
+}
+
+list_connections() {
+  echo "Available rainfrog IAM connections (from $SECRETS_FILE):"
+  echo ""
+  list_connections_raw | sed 's/^/  /'
+}
+
+# ── argument parsing ───────────────────────────────────────────────────────────
+
+if [[ $# -eq 0 ]]; then
+  # No args — open fzf picker like kubectx
+  CONNECTION_NAME=$(list_connections_raw | fzf --prompt="rainfrog > " --height=10 --reverse --no-multi)
+  [[ -n "$CONNECTION_NAME" ]] || exit 0  # user cancelled with Esc/Ctrl-C
+elif [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  usage
+  exit 0
+elif [[ "$1" == "--list" || "$1" == "-l" ]]; then
+  list_connections
+  exit 0
+else
+  CONNECTION_NAME="$1"
+fi
+
+# Convert kebab-case connection name to the env var prefix:
+# financecore-qa → FINANCECORE_QA
+VAR_PREFIX=$(echo "$CONNECTION_NAME" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+
+# ── read connection vars ───────────────────────────────────────────────────────
+
+get_var() {
+  local var="RAINFROG_${VAR_PREFIX}_${1}"
+  echo "${!var:-}"
+}
+
+HOST=$(get_var HOST)
+USER=$(get_var USER)
+DB=$(get_var DB)
+PORT=$(get_var PORT)
+REGION=$(get_var REGION)
+PROFILE=$(get_var PROFILE)
+SSO_SESSION=$(get_var SSO_SESSION)
+SSL_CA=$(get_var SSL_CA)
+
+# Validate required vars
+[[ -n "$HOST" ]]        || die "RAINFROG_${VAR_PREFIX}_HOST is not set in $SECRETS_FILE"
+[[ -n "$USER" ]]        || die "RAINFROG_${VAR_PREFIX}_USER is not set in $SECRETS_FILE"
+[[ -n "$DB" ]]          || die "RAINFROG_${VAR_PREFIX}_DB is not set in $SECRETS_FILE"
+[[ -n "$PORT" ]]        || die "RAINFROG_${VAR_PREFIX}_PORT is not set in $SECRETS_FILE"
+[[ -n "$REGION" ]]      || die "RAINFROG_${VAR_PREFIX}_REGION is not set in $SECRETS_FILE"
+[[ -n "$PROFILE" ]]     || die "RAINFROG_${VAR_PREFIX}_PROFILE is not set in $SECRETS_FILE"
+[[ -n "$SSO_SESSION" ]] || die "RAINFROG_${VAR_PREFIX}_SSO_SESSION is not set in $SECRETS_FILE"
+
+# ── ensure SSO session is active ───────────────────────────────────────────────
+
+echo "Checking AWS SSO session ($SSO_SESSION / $PROFILE)..."
+
+if ! aws sts get-caller-identity --profile "$PROFILE" --output text &>/dev/null; then
+  echo "SSO session expired or not active. Logging in..."
+  aws sso login --sso-session "$SSO_SESSION"
+  # Verify login succeeded
+  aws sts get-caller-identity --profile "$PROFILE" --output text &>/dev/null \
+    || die "SSO login failed for session '$SSO_SESSION'. Check your AWS config."
+fi
+
+echo "SSO session active."
+
+# ── generate IAM auth token ────────────────────────────────────────────────────
+
+echo "Generating RDS IAM auth token..."
+
+TOKEN=$(aws rds generate-db-auth-token \
+  --hostname "$HOST" \
+  --port "$PORT" \
+  --region "$REGION" \
+  --username "$USER" \
+  --profile "$PROFILE") \
+  || die "Failed to generate RDS IAM auth token."
+
+# ── build connection URL ───────────────────────────────────────────────────────
+
+# URL-encode the token (it contains special chars like / ? & =)
+# Use Python for reliable encoding — it's available on all macOS systems
+ENCODED_TOKEN=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read().strip(), safe=''))" <<< "$TOKEN")
+
+if [[ -n "$SSL_CA" ]]; then
+  URL="mysql://${USER}:${ENCODED_TOKEN}@${HOST}:${PORT}/${DB}?ssl-mode=require&ssl-ca=${SSL_CA}&enable-cleartext-plugin=true"
+else
+  URL="mysql://${USER}:${ENCODED_TOKEN}@${HOST}:${PORT}/${DB}?enable-cleartext-plugin=true"
+fi
+
+# ── launch rainfrog ────────────────────────────────────────────────────────────
+
+echo "Connecting to $CONNECTION_NAME..."
+exec rainfrog --url "$URL"
