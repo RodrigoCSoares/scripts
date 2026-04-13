@@ -160,12 +160,12 @@ TOKEN=$(aws rds generate-db-auth-token \
 ENCODED_TOKEN=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read().strip(), safe=''))" <<< "$TOKEN")
 
 if [[ -n "$SSL_CA" ]]; then
-  URL="mysql://${USER}:${ENCODED_TOKEN}@${HOST}:${PORT}/${DB}?ssl-mode=require&ssl-ca=${SSL_CA}&enable-cleartext-plugin=true"
+  URL="mysql://${USER}:${ENCODED_TOKEN}@${HOST}:${PORT}/${DB}?ssl-mode=require&ssl-ca=${SSL_CA}"
 else
-  URL="mysql://${USER}:${ENCODED_TOKEN}@${HOST}:${PORT}/${DB}?enable-cleartext-plugin=true"
+  URL="mysql://${USER}:${ENCODED_TOKEN}@${HOST}:${PORT}/${DB}"
 fi
 
 # ── launch rainfrog ────────────────────────────────────────────────────────────
 
 echo "Connecting to $CONNECTION_NAME..."
-exec rainfrog --url "$URL"
+exec rainfrog --url "$URL" --enable-cleartext-plugin
