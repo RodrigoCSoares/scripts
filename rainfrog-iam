@@ -160,7 +160,7 @@ TOKEN=$(aws rds generate-db-auth-token \
 ENCODED_TOKEN=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read().strip(), safe=''))" <<< "$TOKEN")
 
 if [[ -n "$SSL_CA" ]]; then
-  URL="mysql://${USER}:${ENCODED_TOKEN}@${HOST}:${PORT}/${DB}?ssl-mode=require&ssl-ca=${SSL_CA}"
+  URL="mysql://${USER}:${ENCODED_TOKEN}@${HOST}:${PORT}/${DB}?ssl-mode=required&ssl-ca=${SSL_CA}"
 else
   URL="mysql://${USER}:${ENCODED_TOKEN}@${HOST}:${PORT}/${DB}"
 fi
