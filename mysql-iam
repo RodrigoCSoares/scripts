@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+# mysql-iam — connect to AWS RDS with IAM auth using the mysql CLI
+#
+# Based on rainfrog-iam. Uses --default-auth=mysql_native_password per DBA request.
+#
+# Connection parameters are read from ~/.secrets using the naming convention:
+#   RAINFROG_<NAME>_HOST, RAINFROG_<NAME>_USER, RAINFROG_<NAME>_DB,
+#   RAINFROG_<NAME>_PORT, RAINFROG_<NAME>_REGION, RAINFROG_<NAME>_PROFILE,
+#   RAINFROG_<NAME>_SSO_SESSION, RAINFROG_<NAME>_SSL_CA (optional)
+#
+# Usage:
+#   mysql-iam <connection-name>   # e.g. mysql-iam financecore-qa
+#   mysql-iam --list              # list available connections from ~/.secrets
+
+set -euo pipefail
+
+SECRETS_FILE="$HOME/.secrets"
+
+# ── helpers ────────────────────────────────────────────────────────────────────
+
+usage() {
+  cat <<EOF
+Usage: mysql-iam [connection-name]
+       mysql-iam --list
+       mysql-iam --help
+
+Connect to AWS RDS via IAM auth using the mysql CLI.
+Uses --default-auth=mysql_native_password.
+
+Commands:
+  (no args)           Pick a connection interactively with fzf
+  <connection-name>   Connect directly by name (e.g. financecore-qa)
+  --list, -l          List all connections configured in $SECRETS_FILE
+  --help, -h          Show this help message
+EOF
+}
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+# ── load secrets ───────────────────────────────────────────────────────────────
+
+[[ -f "$SECRETS_FILE" ]] || die "secrets file not found: $SECRETS_FILE"
+# shellcheck source=/dev/null
+source "$SECRETS_FILE"
+
+# ── list mode ──────────────────────────────────────────────────────────────────
+
+list_connections_raw() {
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^export\ RAINFROG_(.+)_HOST= ]]; then
+      raw="${BASH_REMATCH[1]}"
+      echo "$raw" | tr '[:upper:]' '[:lower:]' | tr '_' '-'
+    fi
+  done < "$SECRETS_FILE"
+}
+
+list_connections() {
+  echo "Available IAM connections (from $SECRETS_FILE):"
+  echo ""
+  list_connections_raw | sed 's/^/  /'
+}
+
+# ── argument parsing ───────────────────────────────────────────────────────────
+
+if [[ $# -eq 0 ]]; then
+  CONNECTION_NAME=$(list_connections_raw | fzf --prompt="mysql-iam > " --height=10 --reverse --no-multi)
+  [[ -n "$CONNECTION_NAME" ]] || exit 0
+elif [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  usage
+  exit 0
+elif [[ "$1" == "--list" || "$1" == "-l" ]]; then
+  list_connections
+  exit 0
+else
+  CONNECTION_NAME="$1"
+fi
+
+VAR_PREFIX=$(echo "$CONNECTION_NAME" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+
+# ── read connection vars ───────────────────────────────────────────────────────
+
+get_var() {
+  local var="RAINFROG_${VAR_PREFIX}_${1}"
+  echo "${!var:-}"
+}
+
+HOST=$(get_var HOST)
+USER=$(get_var USER)
+DB=$(get_var DB)
+PORT=$(get_var PORT)
+REGION=$(get_var REGION)
+PROFILE=$(get_var PROFILE)
+SSO_SESSION=$(get_var SSO_SESSION)
+SSL_CA=$(get_var SSL_CA)
+
+[[ -n "$HOST" ]]        || die "RAINFROG_${VAR_PREFIX}_HOST is not set in $SECRETS_FILE"
+[[ -n "$USER" ]]        || die "RAINFROG_${VAR_PREFIX}_USER is not set in $SECRETS_FILE"
+[[ -n "$DB" ]]          || die "RAINFROG_${VAR_PREFIX}_DB is not set in $SECRETS_FILE"
+[[ -n "$PORT" ]]        || die "RAINFROG_${VAR_PREFIX}_PORT is not set in $SECRETS_FILE"
+[[ -n "$REGION" ]]      || die "RAINFROG_${VAR_PREFIX}_REGION is not set in $SECRETS_FILE"
+[[ -n "$PROFILE" ]]     || die "RAINFROG_${VAR_PREFIX}_PROFILE is not set in $SECRETS_FILE"
+[[ -n "$SSO_SESSION" ]] || die "RAINFROG_${VAR_PREFIX}_SSO_SESSION is not set in $SECRETS_FILE"
+
+# ── ensure SSO session is active ───────────────────────────────────────────────
+
+echo "Checking AWS SSO session ($SSO_SESSION / $PROFILE)..."
+
+if ! aws sts get-caller-identity --profile "$PROFILE" --output text &>/dev/null; then
+  echo "SSO session expired or not active. Logging in..."
+  aws sso login --sso-session "$SSO_SESSION"
+  aws sts get-caller-identity --profile "$PROFILE" --output text &>/dev/null \
+    || die "SSO login failed for session '$SSO_SESSION'. Check your AWS config."
+fi
+
+echo "SSO session active."
+
+# ── generate IAM auth token ────────────────────────────────────────────────────
+
+echo "Generating RDS IAM auth token..."
+
+TOKEN=$(aws rds generate-db-auth-token \
+  --hostname "$HOST" \
+  --port "$PORT" \
+  --region "$REGION" \
+  --username "$USER" \
+  --profile "$PROFILE") \
+  || die "Failed to generate RDS IAM auth token."
+
+# ── resolve mysql binary (prefer 8.x client) ──────────────────────────────────
+
+MYSQL_BIN="/opt/homebrew/opt/mysql-client@8.0/bin/mysql"
+if [[ ! -x "$MYSQL_BIN" ]]; then
+  MYSQL_BIN=$(command -v mysql) || die "mysql not found in PATH"
+fi
+
+# ── build mysql args ───────────────────────────────────────────────────────────
+
+MYSQL_ARGS=(
+  -h "$HOST"
+  -P "$PORT"
+  -u "$USER"
+  "--password=${TOKEN}"
+  "$DB"
+  --default-auth=mysql_native_password
+  --enable-cleartext-plugin
+)
+
+if [[ -n "$SSL_CA" ]]; then
+  MYSQL_ARGS+=(--ssl-ca="$SSL_CA" --ssl-mode=REQUIRED)
+fi
+
+# ── connect ────────────────────────────────────────────────────────────────────
+
+echo "Connecting to $CONNECTION_NAME (using $MYSQL_BIN)..."
+exec "$MYSQL_BIN" "${MYSQL_ARGS[@]}"
