@@ -1,1 +1,0 @@
--record(triage_result, {is_ie :: boolean(), reason :: binary()}).
