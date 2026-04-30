@@ -37,10 +37,15 @@ Connection vars must be defined in $SECRETS_FILE using this naming convention:
   RAINFROG_<NAME>_USER          Database username              (required)
   RAINFROG_<NAME>_DB            Database name                  (required)
   RAINFROG_<NAME>_PORT          Port (e.g. 3306)               (required)
-  RAINFROG_<NAME>_REGION        AWS region (e.g. eu-west-1)    (required)
-  RAINFROG_<NAME>_PROFILE       AWS CLI profile name           (required)
-  RAINFROG_<NAME>_SSO_SESSION   AWS SSO session name           (required)
   RAINFROG_<NAME>_SSL_CA        Path to SSL CA cert            (optional)
+
+  IAM-authenticated connections (mutually exclusive with PASSWORD):
+  RAINFROG_<NAME>_REGION        AWS region (e.g. eu-west-1)    (required for IAM)
+  RAINFROG_<NAME>_PROFILE       AWS CLI profile name           (required for IAM)
+  RAINFROG_<NAME>_SSO_SESSION   AWS SSO session name           (required for IAM)
+
+  Fixed-credential connections:
+  RAINFROG_<NAME>_PASSWORD      Database password              (required if not IAM)
 
 Where <NAME> is the connection name uppercased with hyphens replaced by
 underscores (e.g. financecore-qa → FINANCECORE_QA).
@@ -48,6 +53,7 @@ underscores (e.g. financecore-qa → FINANCECORE_QA).
 Examples:
   rainfrog-iam financecore-qa
   rainfrog-iam financecore-prd5
+  rainfrog-iam gbpi-production-replica
   rainfrog-iam --list
 EOF
 }
@@ -117,52 +123,58 @@ REGION=$(get_var REGION)
 PROFILE=$(get_var PROFILE)
 SSO_SESSION=$(get_var SSO_SESSION)
 SSL_CA=$(get_var SSL_CA)
+PASSWORD=$(get_var PASSWORD)
 
 # Validate required vars
-[[ -n "$HOST" ]]        || die "RAINFROG_${VAR_PREFIX}_HOST is not set in $SECRETS_FILE"
-[[ -n "$USER" ]]        || die "RAINFROG_${VAR_PREFIX}_USER is not set in $SECRETS_FILE"
-[[ -n "$DB" ]]          || die "RAINFROG_${VAR_PREFIX}_DB is not set in $SECRETS_FILE"
-[[ -n "$PORT" ]]        || die "RAINFROG_${VAR_PREFIX}_PORT is not set in $SECRETS_FILE"
-[[ -n "$REGION" ]]      || die "RAINFROG_${VAR_PREFIX}_REGION is not set in $SECRETS_FILE"
-[[ -n "$PROFILE" ]]     || die "RAINFROG_${VAR_PREFIX}_PROFILE is not set in $SECRETS_FILE"
-[[ -n "$SSO_SESSION" ]] || die "RAINFROG_${VAR_PREFIX}_SSO_SESSION is not set in $SECRETS_FILE"
-
-# ── ensure SSO session is active ───────────────────────────────────────────────
-
-echo "Checking AWS SSO session ($SSO_SESSION / $PROFILE)..."
-
-if ! aws sts get-caller-identity --profile "$PROFILE" --output text &>/dev/null; then
-  echo "SSO session expired or not active. Logging in..."
-  aws sso login --sso-session "$SSO_SESSION"
-  # Verify login succeeded
-  aws sts get-caller-identity --profile "$PROFILE" --output text &>/dev/null \
-    || die "SSO login failed for session '$SSO_SESSION'. Check your AWS config."
-fi
-
-echo "SSO session active."
-
-# ── generate IAM auth token ────────────────────────────────────────────────────
-
-echo "Generating RDS IAM auth token..."
-
-TOKEN=$(aws rds generate-db-auth-token \
-  --hostname "$HOST" \
-  --port "$PORT" \
-  --region "$REGION" \
-  --username "$USER" \
-  --profile "$PROFILE") \
-  || die "Failed to generate RDS IAM auth token."
+[[ -n "$HOST" ]]  || die "RAINFROG_${VAR_PREFIX}_HOST is not set in $SECRETS_FILE"
+[[ -n "$USER" ]]  || die "RAINFROG_${VAR_PREFIX}_USER is not set in $SECRETS_FILE"
+[[ -n "$DB" ]]    || die "RAINFROG_${VAR_PREFIX}_DB is not set in $SECRETS_FILE"
+[[ -n "$PORT" ]]  || die "RAINFROG_${VAR_PREFIX}_PORT is not set in $SECRETS_FILE"
 
 # ── build connection URL ───────────────────────────────────────────────────────
 
-# URL-encode the token (it contains special chars like / ? & =)
-# Use Python for reliable encoding — it's available on all macOS systems
-ENCODED_TOKEN=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read().strip(), safe=''))" <<< "$TOKEN")
-
-if [[ -n "$SSL_CA" ]]; then
-  URL="mysql://${USER}:${ENCODED_TOKEN}@${HOST}:${PORT}/${DB}?ssl-mode=required&ssl-ca=${SSL_CA}"
+if [[ -n "$PASSWORD" ]]; then
+  # Fixed-credential connection — skip SSO and IAM token flow
+  ENCODED_PASSWORD=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read().strip(), safe=''))" <<< "$PASSWORD")
+  if [[ -n "$SSL_CA" ]]; then
+    URL="mysql://${USER}:${ENCODED_PASSWORD}@${HOST}:${PORT}/${DB}?ssl-mode=required&ssl-ca=${SSL_CA}"
+  else
+    URL="mysql://${USER}:${ENCODED_PASSWORD}@${HOST}:${PORT}/${DB}"
+  fi
 else
-  URL="mysql://${USER}:${ENCODED_TOKEN}@${HOST}:${PORT}/${DB}"
+  # IAM-authenticated connection
+  [[ -n "$REGION" ]]      || die "RAINFROG_${VAR_PREFIX}_REGION is not set in $SECRETS_FILE"
+  [[ -n "$PROFILE" ]]     || die "RAINFROG_${VAR_PREFIX}_PROFILE is not set in $SECRETS_FILE"
+  [[ -n "$SSO_SESSION" ]] || die "RAINFROG_${VAR_PREFIX}_SSO_SESSION is not set in $SECRETS_FILE"
+
+  echo "Checking AWS SSO session ($SSO_SESSION / $PROFILE)..."
+
+  if ! aws sts get-caller-identity --profile "$PROFILE" --output text &>/dev/null; then
+    echo "SSO session expired or not active. Logging in..."
+    aws sso login --sso-session "$SSO_SESSION"
+    aws sts get-caller-identity --profile "$PROFILE" --output text &>/dev/null \
+      || die "SSO login failed for session '$SSO_SESSION'. Check your AWS config."
+  fi
+
+  echo "SSO session active."
+  echo "Generating RDS IAM auth token..."
+
+  TOKEN=$(aws rds generate-db-auth-token \
+    --hostname "$HOST" \
+    --port "$PORT" \
+    --region "$REGION" \
+    --username "$USER" \
+    --profile "$PROFILE") \
+    || die "Failed to generate RDS IAM auth token."
+
+  # URL-encode the token (it contains special chars like / ? & =)
+  ENCODED_TOKEN=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read().strip(), safe=''))" <<< "$TOKEN")
+
+  if [[ -n "$SSL_CA" ]]; then
+    URL="mysql://${USER}:${ENCODED_TOKEN}@${HOST}:${PORT}/${DB}?ssl-mode=required&ssl-ca=${SSL_CA}"
+  else
+    URL="mysql://${USER}:${ENCODED_TOKEN}@${HOST}:${PORT}/${DB}"
+  fi
 fi
 
 # ── launch rainfrog ────────────────────────────────────────────────────────────
