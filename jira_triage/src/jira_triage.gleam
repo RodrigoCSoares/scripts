@@ -23,9 +23,9 @@ fn run_triage(period: String) -> Nil {
   io.println(
     "\nFetching "
     <> project
-    <> " tickets from the last "
+    <> " tickets waiting to be worked on (last "
     <> period_label(period)
-    <> "...",
+    <> ", oldest first)...",
   )
 
   let base_url = case envoy.get("JIRA_BASE_URL") {

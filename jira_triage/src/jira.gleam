@@ -42,7 +42,8 @@ pub fn fetch_tickets(period: String) -> Result(List(Ticket), String) {
     <> project
     <> " AND created >= -"
     <> period
-    <> " ORDER BY created DESC"
+    <> " AND status in (\"Waiting for support\", \"Backlog - Pending prioritization\")"
+    <> " ORDER BY created ASC"
 
   use raw_json <- result.try(
     shellout.command(
