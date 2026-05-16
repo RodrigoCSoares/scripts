@@ -3,3 +3,5 @@ build/
 
 # Erlang crash dumps
 erl_crash.dump
+
+personal_goals_tracker/
