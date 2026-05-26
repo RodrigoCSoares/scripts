@@ -5,3 +5,7 @@ build/
 erl_crash.dump
 
 personal_goals_tracker/
+
+transcribe/to-transcribe/
+transcribe/transcriptions/
+cache_*
