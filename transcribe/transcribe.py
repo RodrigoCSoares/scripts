@@ -19,7 +19,7 @@ if not HF_TOKEN:
     print("HF_TOKEN not found in .secrets")
     sys.exit(1)
 
-device = "cpu"
+device = "mps" if __import__("torch").backends.mps.is_available() else "cpu"
 cache_dir = script_dir
 input_dir = os.path.join(script_dir, "to-transcribe")
 output_dir = os.path.join(script_dir, "transcriptions")
@@ -85,7 +85,7 @@ def process_file(audio_file):
             json.dump(result, f)
 
     with model_lock:
-        diarize_segments = run_with_spinner(f"[{name}] Detecting speakers", diarize_model, audio, min_speakers=2, max_speakers=2)
+        diarize_segments = run_with_spinner(f"[{name}] Detecting speakers", diarize_model, audio)
     result = whisperx.assign_word_speakers(diarize_segments, result)
 
     output_file = os.path.join(output_dir, basename + ".txt")
