@@ -19,7 +19,7 @@ if not HF_TOKEN:
     print("HF_TOKEN not found in .secrets")
     sys.exit(1)
 
-device = "mps" if __import__("torch").backends.mps.is_available() else "cpu"
+device = "cpu"
 cache_dir = script_dir
 input_dir = os.path.join(script_dir, "to-transcribe")
 output_dir = os.path.join(script_dir, "transcriptions")
