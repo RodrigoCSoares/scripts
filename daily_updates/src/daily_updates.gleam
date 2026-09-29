@@ -26,6 +26,9 @@ pub fn main() -> Nil {
   io.println("\n-> Upgrading Neovim Lazy plugins...")
   cmd.run("nvim", ["--headless", "+Lazy! sync", "+qa"])
 
+  io.println("\n-> Updating standalone programs")
+  cmd.run("jetdev", ["update"])
+
   io.println("\n-> Syncing dotfiles...")
   dotfiles.sync()
 
